@@ -1,28 +1,35 @@
 package processor
 
 import (
-	"ygo-card-processor/models"
-	"ygo-card-processor/pkg/scraper"
 	"fmt"
 	"github.com/sirupsen/logrus"
 	"regexp"
 	"strings"
+	"ygo-card-processor/models"
+	"ygo-card-processor/pkg/scraper"
 )
 
 func Process(cardList []string) models.CompleteCardList {
 	ccl := models.CompleteCardList{
-		Names: 			[]string{},
-		Serials:		[]string{},
-		LowestPrices:	[]string{},
-		HighestPrices:	[]string{},
-		AveragePrices:	[]string{},
+		Names:         []string{},
+		Serials:       []string{},
+		LowestPrices:  []string{},
+		HighestPrices: []string{},
+		AveragePrices: []string{},
 	}
 
 	re := regexp.MustCompile(`\$[0-9]+.[0-9]{2}`)
 	errorReg := regexp.MustCompile(`No cards matching this name were found.`)
 	nameReg := regexp.MustCompile(`<h1 id='item_name'>\n.+\n.+`)
 
+	processedCards := make(map[string]bool)
+
 	for i := range cardList {
+		if processedCards[cardList[i]] {
+			continue
+		}
+		processedCards[cardList[i]] = true
+
 		logrus.WithField("card_serial", cardList[i]).Info("Retrieving card info")
 		htmlBytes, responseCode, err := scraper.Scrape(fmt.Sprintf("http://www.yugiohprices.com/price_history/%v", strings.ToUpper(cardList[i])))
 		if err != nil {
@@ -42,7 +49,7 @@ func Process(cardList []string) models.CompleteCardList {
 
 		for i := 0; i < 3; i++ {
 			index := strings.Index(nameRegString, "\n")
-			nameRegString = nameRegString[index + 1:]
+			nameRegString = nameRegString[index+1:]
 		}
 
 		cardName := nameRegString
