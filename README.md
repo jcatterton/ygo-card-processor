@@ -19,5 +19,7 @@ be found, which indicates invalid entry.
 Each card typically takes less than a second to process, but this means large card
 collections may take several minutes.
 
-After running, a new spreadhseet called "output.xlsx" will be in the project's root
-directory containing price information on all provided cards.
+After running, a new spreadsheet called "output.xlsx" will be in the project's root
+directory containing price information on all provided cards. Prices are separated
+into three columns, minimum, maximum, and average. Totals for the three columns are
+at the bottom.
