@@ -2,6 +2,7 @@ package writer
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/sirupsen/logrus"
 	"github.com/tealeg/xlsx"
@@ -32,6 +33,11 @@ func WriteToXlsx(list models.CompleteCardList) error {
 	sh.Rows[len(sh.Rows)-1].Cells[2].Value = "0"
 	sh.Rows[len(sh.Rows)-1].Cells[3].Value = "0"
 
+	var marketSum float64
+	var newMarketPrice float64
+	var minSum float64
+	var newMinPrice float64
+
 	var row *xlsx.Row
 	for i := 1; i < len(list.Names)+1; i++ {
 		row = sh.Rows[i]
@@ -41,21 +47,25 @@ func WriteToXlsx(list models.CompleteCardList) error {
 		row.Cells[2].Value = list.MarketPrice[i-1]
 		row.Cells[3].Value = list.AsLowAsPrice[i-1]
 
-		marketSum, err := strconv.ParseFloat(sh.Rows[len(sh.Rows)-1].Cells[2].Value, 32)
-		if err != nil {
-			logrus.WithError(err).Error("Error parsing string to float")
+		if !strings.Contains(row.Cells[2].Value, "Unable") {
+			marketSum, err = strconv.ParseFloat(sh.Rows[len(sh.Rows)-1].Cells[2].Value, 32)
+			if err != nil {
+				logrus.WithError(err).Error("Error parsing string to float")
+			}
+			newMarketPrice, err = strconv.ParseFloat(row.Cells[2].Value[1:], 32)
+			if err != nil {
+				logrus.WithError(err).Error("Error parsing string to float")
+			}
 		}
-		newMarketPrice, err := strconv.ParseFloat(row.Cells[2].Value[1:], 32)
-		if err != nil {
-			logrus.WithError(err).Error("Error parsing string to float")
-		}
-		minSum, err := strconv.ParseFloat(sh.Rows[len(sh.Rows)-1].Cells[3].Value, 32)
-		if err != nil {
-			logrus.WithError(err).Error("Error parsing string to float")
-		}
-		newMinPrice, err := strconv.ParseFloat(row.Cells[3].Value[1:], 32)
-		if err != nil {
-			logrus.WithError(err).Error("Error parsing string to float")
+		if !strings.Contains(row.Cells[3].Value, "Unable") {
+			minSum, err = strconv.ParseFloat(sh.Rows[len(sh.Rows)-1].Cells[3].Value, 32)
+			if err != nil {
+				logrus.WithError(err).Error("Error parsing string to float")
+			}
+			newMinPrice, err = strconv.ParseFloat(row.Cells[3].Value[1:], 32)
+			if err != nil {
+				logrus.WithError(err).Error("Error parsing string to float")
+			}
 		}
 
 		sh.Rows[len(sh.Rows)-1].Cells[2].Value = strconv.FormatFloat(newMarketPrice+marketSum, 'f', 2, 32)

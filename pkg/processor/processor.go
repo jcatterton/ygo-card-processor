@@ -25,6 +25,7 @@ func Process(cardList []string) models.CompleteCardList {
 	errorReg := regexp.MustCompile(`Oh no! Nothing was found!`)
 
 	processedCards := make(map[string]bool)
+	var invalidCards []string
 
 	for i := range cardList {
 		if processedCards[cardList[i]] {
@@ -46,23 +47,32 @@ func Process(cardList []string) models.CompleteCardList {
 			continue
 		} else if errorReg.Find(htmlBytes) != nil {
 			logrus.WithField("card_serial", cardList[i]).Error("No card found with given serial")
+			invalidCards = append(invalidCards, cardList[i])
 			continue
 		}
 
 		marketPrice := marketPriceReg.Find(htmlBytes)
 		marketPriceString := string(marketPrice)
-		index := strings.Index(marketPriceString, "$")
-		marketPriceString = marketPriceString[index:]
+		if marketPriceString != "" {
+			index := strings.Index(marketPriceString, "$")
+			marketPriceString = marketPriceString[index:]
+		} else {
+			marketPriceString = "Unable to get market price"
+		}
 
 		lowestPrice := asLowAsReg.Find(htmlBytes)
 		lowestPriceString := string(lowestPrice)
-		index = strings.Index(lowestPriceString, "$")
-		lowestPriceString = lowestPriceString[index:]
+		if lowestPriceString != "" {
+			index := strings.Index(lowestPriceString, "$")
+			lowestPriceString = lowestPriceString[index:]
+		} else {
+			lowestPriceString = "Unable to get lowest price"
+		}
 
 		stringPrices := []string{marketPriceString, lowestPriceString}
 
 		nameRegString := string(nameReg.Find(htmlBytes))
-		index = strings.Index(nameRegString, `);">`)
+		index := strings.Index(nameRegString, `);">`)
 		nameRegString = nameRegString[index+4 : len(nameRegString)-4]
 		cardName := nameRegString
 
@@ -70,6 +80,12 @@ func Process(cardList []string) models.CompleteCardList {
 		ccl.Serials = append(ccl.Serials, cardList[i])
 		ccl.MarketPrice = append(ccl.MarketPrice, stringPrices[0])
 		ccl.AsLowAsPrice = append(ccl.AsLowAsPrice, stringPrices[1])
+	}
+
+	if len(invalidCards) > 0 {
+		for j := range invalidCards {
+			logrus.WithField("card_serial", invalidCards[j]).Warn("Unable to retrieve card info")
+		}
 	}
 
 	return ccl
