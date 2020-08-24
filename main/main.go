@@ -14,7 +14,7 @@ func main() {
 	}
 
 	ccl := processor.Process(cardList)
-	logrus.WithField("completed_card_list_length", len(ccl.Names)).Info("Retrieved price info on cards")
+	logrus.WithField("unique_cards_found", len(ccl.Names)).Info("Retrieved price info on cards")
 
 	if err := writer.WriteToXlsx(ccl); err != nil {
 		logrus.WithError(err).Error("Error while writing to excel file")
