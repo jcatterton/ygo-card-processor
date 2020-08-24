@@ -22,6 +22,7 @@ func Process(cardList []string) models.CompleteCardList {
 	marketPriceReg := regexp.MustCompile(`<dd>\$[0-9]+\.[0-9]{2}`)
 	asLowAsReg := regexp.MustCompile(`lowest-price-value">\$[0-9]+\.[0-9]{2}`)
 	nameReg := regexp.MustCompile(`<a class="product__name".+<\/a>`)
+	errorReg := regexp.MustCompile(`Oh no! Nothing was found!`)
 
 	processedCards := make(map[string]bool)
 
@@ -39,8 +40,13 @@ func Process(cardList []string) models.CompleteCardList {
 		htmlBytes, responseCode, err := scraper.Scrape(fmt.Sprintf("https://shop.tcgplayer.com/yugioh/product/show?advancedSearch=true&Number=%v", strings.ToUpper(cardList[i])))
 		if err != nil {
 			logrus.WithError(err).Error("Error pinging url")
+			continue
 		} else if responseCode != 200 {
 			logrus.WithField("response_code", responseCode).Info("Non-200 response code recieved from URL")
+			continue
+		} else if errorReg.Find(htmlBytes) != nil {
+			logrus.WithField("card_serial", cardList[i]).Error("No card found with given serial")
+			continue
 		}
 
 		marketPrice := marketPriceReg.Find(htmlBytes)
