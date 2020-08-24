@@ -2,9 +2,11 @@ package processor
 
 import (
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"regexp"
 	"strings"
+
+	"github.com/sirupsen/logrus"
+
 	"ygo-card-processor/models"
 	"ygo-card-processor/pkg/scraper"
 )
