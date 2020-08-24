@@ -1,10 +1,9 @@
 package scraper
 
 import (
+	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
-
-	"github.com/sirupsen/logrus"
 )
 
 func Scrape(u string) ([]byte, int, error) {
