@@ -1,6 +1,6 @@
 ##Yu-Gi-Oh Card Processor
 
-Fetches the HTML from yugiohprices.com for given cards and parses the HTML to get
+Fetches the HTML from tcgplayer.com for given cards and parses the HTML to get
 the current prices for that card. Outputs the prices into a spreadsheet with the
 card name, highest current price, lowest current price, and average current price.
 
