@@ -38,7 +38,7 @@ func Process(cardList []string) models.CompleteCardList {
 			"progress":    fmt.Sprintf("%v of %v cards", i, len(cardList)),
 		}).Info("Retrieving card info")
 
-		htmlBytes, responseCode, err := scraper.Scrape(fmt.Sprintf("https://shop.tcgplayer.com/yugioh/product/show?advancedSearch=true&Number=%v", strings.ToUpper(cardList[i])))
+		htmlBytes, responseCode, err := scraper.Scrape(fmt.Sprintf("https://shop.tcgplayer.com/yugioh/product/show?advancedSearch=true&Number=%v", cardList[i]))
 		if err != nil {
 			logrus.WithError(err).Error("Error pinging url")
 			continue
