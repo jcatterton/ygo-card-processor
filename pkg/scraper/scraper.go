@@ -1,9 +1,10 @@
 package scraper
 
 import (
-	"github.com/sirupsen/logrus"
 	"io/ioutil"
 	"net/http"
+
+	"github.com/sirupsen/logrus"
 )
 
 func Scrape(u string) ([]byte, int, error) {
@@ -24,6 +25,7 @@ func Scrape(u string) ([]byte, int, error) {
 	decodedBody, err := ioutil.ReadAll(resp.Body)
 	if err != nil {
 		logrus.WithError(err).Error("Error while reading response body")
+		return nil, 0, err
 	}
 
 	if err := resp.Body.Close(); err != nil {

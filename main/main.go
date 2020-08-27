@@ -2,6 +2,7 @@ package main
 
 import (
 	"github.com/sirupsen/logrus"
+
 	"ygo-card-processor/pkg/processor"
 	"ygo-card-processor/pkg/reader"
 	"ygo-card-processor/pkg/writer"

@@ -69,17 +69,14 @@ func Process(cardList []string) models.CompleteCardList {
 			lowestPriceString = "Unable to get lowest price"
 		}
 
-		stringPrices := []string{marketPriceString, lowestPriceString}
-
 		nameRegString := string(nameReg.Find(htmlBytes))
 		index := strings.Index(nameRegString, `);">`)
 		nameRegString = nameRegString[index+4 : len(nameRegString)-4]
-		cardName := nameRegString
 
-		ccl.Names = append(ccl.Names, cardName)
+		ccl.Names = append(ccl.Names, nameRegString)
 		ccl.Serials = append(ccl.Serials, cardList[i])
-		ccl.MarketPrice = append(ccl.MarketPrice, stringPrices[0])
-		ccl.AsLowAsPrice = append(ccl.AsLowAsPrice, stringPrices[1])
+		ccl.MarketPrice = append(ccl.MarketPrice, marketPriceString)
+		ccl.AsLowAsPrice = append(ccl.AsLowAsPrice, lowestPriceString)
 	}
 
 	if len(invalidCards) > 0 {
