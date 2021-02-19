@@ -11,13 +11,8 @@ import (
 	"ygo-card-processor/pkg/scraper"
 )
 
-func Process(cardList []string) models.CompleteCardList {
-	ccl := models.CompleteCardList{
-		Names:        []string{},
-		Serials:      []string{},
-		MarketPrice:  []string{},
-		AsLowAsPrice: []string{},
-	}
+func Process(cardList []string) []models.Card {
+	ccl := []models.Card{}
 
 	marketPriceReg := regexp.MustCompile(`<dd>\$[0-9]+\.[0-9]{2}`)
 	asLowAsReg := regexp.MustCompile(`lowest-price-value">\$[0-9]+\.[0-9]{2}`)
@@ -38,7 +33,7 @@ func Process(cardList []string) models.CompleteCardList {
 			"progress":    fmt.Sprintf("%v of %v cards", i, len(cardList)),
 		}).Info("Retrieving card info")
 
-		htmlBytes, responseCode, err := scraper.Scrape(fmt.Sprintf("https://shop.tcgplayer.com/yugioh/product/show?advancedSearch=true&Number=%v", cardList[i]))
+		htmlBytes, responseCode, err := scraper.Scrape(fmt.Sprintf("https://www.tcgplayer.com/search/yugioh/product?Number=MVP1-ENSV4", cardList[i]))
 		if err != nil {
 			logrus.WithError(err).Error("Error pinging url")
 			continue
@@ -60,6 +55,7 @@ func Process(cardList []string) models.CompleteCardList {
 			marketPriceString = "Unable to get market price"
 		}
 
+		logrus.Info(string(htmlBytes))
 		lowestPrice := asLowAsReg.Find(htmlBytes)
 		lowestPriceString := string(lowestPrice)
 		if lowestPriceString != "" {
@@ -71,12 +67,15 @@ func Process(cardList []string) models.CompleteCardList {
 
 		nameRegString := string(nameReg.Find(htmlBytes))
 		index := strings.Index(nameRegString, `);">`)
+		logrus.Info(nameRegString)
 		nameRegString = nameRegString[index+4 : len(nameRegString)-4]
 
-		ccl.Names = append(ccl.Names, nameRegString)
-		ccl.Serials = append(ccl.Serials, cardList[i])
-		ccl.MarketPrice = append(ccl.MarketPrice, marketPriceString)
-		ccl.AsLowAsPrice = append(ccl.AsLowAsPrice, lowestPriceString)
+		ccl = append(ccl, models.Card{
+			nameRegString,
+			cardList[i],
+			marketPriceString,
+			lowestPriceString,
+		})
 	}
 
 	if len(invalidCards) > 0 {
