@@ -1,0 +1,22 @@
+apiVersion: batch/v1beta1
+kind: CronJob
+metadata:
+    name: process
+spec:
+    schedule: "0 1 * * *"
+    concurrencyPolicy: Forbid
+    successfulJobsHistoryLimit: 1
+    failedJobsHistoryLimit: 1
+    jobTemplate:
+        spec:
+            template:
+                spec:
+                    containers:
+                        - name: process
+                          image: curlimages/curl
+                          args:
+                              - curl
+                              - -X
+                              - POST
+                              - http://192.168.1.15:32243/process
+                    restartPolicy: Never
