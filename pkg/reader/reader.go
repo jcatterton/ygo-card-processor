@@ -1,28 +1,29 @@
 package reader
 
 import (
-	"fmt"
-	"ygo-card-processor/models"
+	"bytes"
+	"io"
+	"mime/multipart"
 
 	"github.com/tealeg/xlsx"
 )
 
-func OpenAndReadFile(path string) ([]models.Card, error) {
-	wb, err := xlsx.OpenFile(fmt.Sprintf("%v", path))
+func OpenAndReadFile(file multipart.File) ([]string, error) {
+	buf := bytes.NewBuffer(nil)
+	if _, err := io.Copy(buf, file); err != nil {
+		return nil, err
+	}
+
+	wb, err := xlsx.OpenBinary(buf.Bytes())
 	if err != nil {
 		return nil, err
 	}
 
-	var cardList []models.Card
+	var cardList []string
 
 	sh := wb.Sheets[0]
 	for i := 0; i < len(sh.Rows); i++ {
-		cardList = append(cardList, models.Card{
-			Name:        sh.Rows[i].Cells[0].Value,
-			Serial:      sh.Rows[i].Cells[1].Value,
-			MarketPrice: sh.Rows[i].Cells[2].Value,
-			LowestPrice: sh.Rows[i].Cells[3].Value,
-		})
+		cardList = append(cardList, sh.Rows[i].Cells[0].Value)
 	}
 
 	return cardList, nil
