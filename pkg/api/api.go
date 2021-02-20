@@ -21,9 +21,9 @@ import (
 	"github.com/gorilla/mux"
 )
 
-const (
-	publicKey  = "34286c10-c5a6-4fb2-9d3f-f33219873c7d"
-	privateKey = "4c2b1a1f-e279-4d64-a9f7-2b04dd1445ee"
+var (
+	publicKey  = os.Getenv("PUBLIC_KEY")
+	privateKey = os.Getenv("PRIVATE_KEY")
 )
 
 func ListenAndServe() error {
@@ -49,7 +49,7 @@ func ListenAndServe() error {
 }
 
 func route() (*mux.Router, error) {
-	dbClient, err := mongo.Connect(context.Background(), options.Client().ApplyURI("mongodb://192.168.1.15:27017"))
+	dbClient, err := mongo.Connect(context.Background(), options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
 		return nil, err
 	}
@@ -70,6 +70,8 @@ func route() (*mux.Router, error) {
 		Token:  "",
 	}
 
+	fileReader := reader.Reader{}
+
 	r := mux.NewRouter()
 
 	r.HandleFunc("/health", checkHealth(&dbHandler)).Methods(http.MethodGet)
@@ -78,7 +80,7 @@ func route() (*mux.Router, error) {
 	r.HandleFunc("/card/{id}", addCardById(&dbHandler, &externalRetriever)).Methods(http.MethodPost)
 	r.HandleFunc("/card/{id}", updateCard(&dbHandler)).Methods(http.MethodPut)
 	r.HandleFunc("/card/{id}", deleteCard(&dbHandler)).Methods(http.MethodDelete)
-	r.HandleFunc("/cards", addCardsFromFile(&dbHandler, &externalRetriever)).Methods(http.MethodPost)
+	r.HandleFunc("/cards", addCardsFromFile(&dbHandler, &externalRetriever, &fileReader)).Methods(http.MethodPost)
 	r.HandleFunc("/cards", getCards(&dbHandler)).Methods(http.MethodGet)
 
 	return r, nil
@@ -178,7 +180,7 @@ func getCardByNumber(handler dao.DbHandler) http.HandlerFunc {
 	}
 }
 
-func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever) http.HandlerFunc {
+func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fileReader reader.FileReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			logrus.WithError(err).Error("Error parsing file")
@@ -198,7 +200,7 @@ func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever) ht
 			}
 		}()
 
-		cardList, err := reader.OpenAndReadFile(f)
+		cardList, err := fileReader.OpenAndReadFile(f)
 		if err != nil {
 			logrus.WithError(err).Error("Error reading card list file")
 			respondWithError(w, http.StatusInternalServerError, "Error adding cards")
@@ -315,7 +317,7 @@ func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.Ha
 			return
 		}
 
-		respondWithSuccess(w, http.StatusCreated, result)
+		respondWithSuccess(w, http.StatusOK, result)
 		return
 	}
 }
@@ -372,18 +374,7 @@ func deleteCard(handler dao.DbHandler) http.HandlerFunc {
 
 func getCards(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		if err := r.ParseForm(); err != nil {
-			logrus.WithError(err).Error("Error parsing form")
-			respondWithError(w, http.StatusBadRequest, "Error getting cards from database")
-			return
-		}
-
-		filters := map[string]interface{}{}
-		for key, value := range r.Form {
-			filters[key] = value[0]
-		}
-
-		results, err := handler.GetCards(context.Background(), filters)
+		results, err := handler.GetCards(context.Background(), nil)
 		if err != nil {
 			logrus.WithError(err).Error("Error getting cards from database")
 			respondWithError(w, http.StatusInternalServerError, "Error getting cards from database")

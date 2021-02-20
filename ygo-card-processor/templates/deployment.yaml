@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ .Values.name }}
+  labels:
+    chart: {{ .Values.name }}
+spec:
+  selector:
+    matchLabels:
+      app: {{ .Values.name }}
+  template:
+    metadata:
+      labels:
+        app: {{ .Values.name }}
+    spec:
+      containers:
+      - name: {{ .Values.name }}
+        image: {{ .Values.image.repository }}:{{ .Values.image.tag }}
+        imagePullPolicy: {{ .Values.image.pullPolicy }}
+        ports:
+        - containerPort: {{ .Values.service.internalPort }}
+        livenessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.service.internalPort }}
+          initialDelaySeconds: 10
+        readinessProbe:
+          httpGet:
+            path: /health
+            port: {{ .Values.service.internalPort }}
+          initialDelaySeconds: 10
+        env:
+        - name: "PUBLIC_KEY"
+          valueFrom:
+            secretKeyRef:
+              name: ygo-card-processor
+              key: PUBLIC_KEY
+              optional: false
+        - name: "PRIVATE_KEY"
+          valueFrom:
+            secretKeyRef:
+              name: ygo-card-processor
+              key: PRIVATE_KEY
+              optional: false
+        - name: "MONGO_URI"
+          valueFrom:
+            secretKeyRef:
+              name: ygo-card-processor
+              key: MONGO_URI
+              optional: false
