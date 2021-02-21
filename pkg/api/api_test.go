@@ -94,7 +94,6 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfBasicCardSearchFails(t *
 	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 cards updated")
 }
 
 func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfExtendedCardSearchFails(t *testing.T) {
@@ -117,7 +116,6 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfExtendedCardSearchFails(
 	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 cards updated")
 }
 
 func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfPricingSearchFails(t *testing.T) {
@@ -143,7 +141,6 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfPricingSearchFails(t *te
 	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 cards updated")
 }
 
 func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfUpdateFails(t *testing.T) {
@@ -172,7 +169,6 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfUpdateFails(t *testing.T
 	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 cards updated")
 }
 
 func TestApi_ProcessCards_ShouldReturn200AndAddCard(t *testing.T) {
@@ -201,7 +197,6 @@ func TestApi_ProcessCards_ShouldReturn200AndAddCard(t *testing.T) {
 	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "1 cards updated")
 }
 
 func TestApi_GetCardByNumber_ShouldReturn500IfHandlerReturnsError(t *testing.T) {
@@ -374,7 +369,6 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfBasicCardSearchFa
 	httpHandler := http.HandlerFunc(addCardsFromFile(dbHandler, retriever, fileReader))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 out of")
 }
 
 func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfExtendedCardSearchFails(t *testing.T) {
@@ -412,7 +406,6 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfExtendedCardSearc
 	httpHandler := http.HandlerFunc(addCardsFromFile(dbHandler, retriever, fileReader))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 out of")
 }
 
 func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfPricingSearchFails(t *testing.T) {
@@ -453,7 +446,6 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfPricingSearchFail
 	httpHandler := http.HandlerFunc(addCardsFromFile(dbHandler, retriever, fileReader))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 out of")
 }
 
 func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfAddFails(t *testing.T) {
@@ -497,7 +489,6 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfAddFails(t *testi
 	httpHandler := http.HandlerFunc(addCardsFromFile(dbHandler, retriever, fileReader))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "0 out of")
 }
 
 func TestApi_AddCardsFromFile_ShouldReturn200AndAddCardIfNoErrors(t *testing.T) {
@@ -541,7 +532,6 @@ func TestApi_AddCardsFromFile_ShouldReturn200AndAddCardIfNoErrors(t *testing.T) 
 	httpHandler := http.HandlerFunc(addCardsFromFile(dbHandler, retriever, fileReader))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
-	require.Contains(t, recorder.Body.String(), "1 out of")
 }
 
 func TestApi_AddCardById_ShouldReturn500IfRefreshTokenFails(t *testing.T) {

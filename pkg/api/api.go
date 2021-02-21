@@ -88,6 +88,8 @@ func route() (*mux.Router, error) {
 
 func checkHealth(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+
 		if err := handler.Ping(context.Background()); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "API is running but database ping failed")
 			return
@@ -99,6 +101,8 @@ func checkHealth(handler dao.DbHandler) http.HandlerFunc {
 
 func processCards(handler dao.DbHandler, retriever external.ExtRetriever) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+
 		cardList, err := handler.GetCards(context.Background(), nil)
 		if err != nil {
 			logrus.WithError(err).Error("Error getting cards from database")
@@ -113,59 +117,63 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever) http.H
 		}
 
 		cardsAdded := 0
-		for _, serial := range cardList {
-			basicCardInfo, err := retriever.BasicCardSearch(serial.CardInfo.ExtendedData[0].Value)
-			if err != nil {
-				logrus.WithError(err).Error("Error performing basic card search")
-				continue
-			}
-			productId := basicCardInfo.Results[0]
-
-			extendedCardInfo, err := retriever.ExtendedCardSearch(productId)
-			if err != nil {
-				logrus.WithError(err).Error("Error performing extended card search")
-				continue
-			}
-			cardInfo := extendedCardInfo.Results[0]
-
-			cardPricingInfo, err := retriever.GetCardPricingInfo(productId)
-			if err != nil {
-				logrus.WithError(err).Error("Error performing card price search")
-				continue
-			}
-
-			priceResults := make([]models.PriceResults, 0)
-			for i := range cardPricingInfo.Results {
-				if cardPricingInfo.Results[i].MarketPrice != 0.0 {
-					priceResults = append(priceResults, cardPricingInfo.Results[i])
+		go func() {
+			for _, serial := range cardList {
+				basicCardInfo, err := retriever.BasicCardSearch(serial.CardInfo.ExtendedData[0].Value)
+				if err != nil {
+					logrus.WithError(err).Error("Error performing basic card search")
+					continue
 				}
+				productId := basicCardInfo.Results[0]
+
+				extendedCardInfo, err := retriever.ExtendedCardSearch(productId)
+				if err != nil {
+					logrus.WithError(err).Error("Error performing extended card search")
+					continue
+				}
+				cardInfo := extendedCardInfo.Results[0]
+
+				cardPricingInfo, err := retriever.GetCardPricingInfo(productId)
+				if err != nil {
+					logrus.WithError(err).Error("Error performing card price search")
+					continue
+				}
+
+				priceResults := make([]models.PriceResults, 0)
+				for i := range cardPricingInfo.Results {
+					if cardPricingInfo.Results[i].MarketPrice != 0.0 {
+						priceResults = append(priceResults, cardPricingInfo.Results[i])
+					}
+				}
+
+				cardInfoWithPrice := models.CardWithPriceInfo{
+					CardInfo:  cardInfo,
+					PriceInfo: priceResults,
+				}
+
+				if _, err := handler.UpdateCardByNumber(context.Background(), cardInfoWithPrice.CardInfo.ExtendedData[0].Value, cardInfoWithPrice); err != nil {
+					logrus.WithError(err).Error("Error updating card")
+					continue
+				}
+
+				cardsAdded++
+				logrus.Info(fmt.Sprintf("%v out of %v cards processed", cardsAdded, len(cardList)))
+
+				/* One second delay after each card because TCG Player API limits users to 300 API calls per minute.
+				With three calls occurring per card, this ensures a maximum of 180 calls per minutes. */
+				time.Sleep(1 * time.Second)
 			}
+		}()
 
-			cardInfoWithPrice := models.CardWithPriceInfo{
-				CardInfo:  cardInfo,
-				PriceInfo: priceResults,
-			}
-
-			if _, err := handler.UpdateCardByNumber(context.Background(), cardInfoWithPrice.CardInfo.ExtendedData[0].Value, cardInfoWithPrice); err != nil {
-				logrus.WithError(err).Error("Error updating card")
-				continue
-			}
-
-			cardsAdded++
-			logrus.Info(fmt.Sprintf("%v out of %v cards processed", cardsAdded, len(cardList)))
-
-			/* One second delay after each card because TCG Player API limits users to 300 API calls per minute.
-			With three calls occurring per card, this ensures a maximum of 180 calls per minutes. */
-			time.Sleep(1 * time.Second)
-		}
-
-		respondWithSuccess(w, http.StatusOK, fmt.Sprintf("%v cards updated", cardsAdded))
+		respondWithSuccess(w, http.StatusOK, fmt.Sprintf("Processing cards has started"))
 		return
 	}
 }
 
 func getCardByNumber(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+
 		id := mux.Vars(r)["id"]
 
 		result, err := handler.GetCardByNumber(context.Background(), id)
@@ -195,6 +203,7 @@ func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fi
 		}
 
 		defer func() {
+			closeRequestBody(r)
 			if err = f.Close(); err != nil {
 				logrus.WithError(err).Error("Error closing file")
 			}
@@ -214,59 +223,63 @@ func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fi
 		}
 
 		cardsAdded := 0
-		for _, serial := range cardList {
-			basicCardInfo, err := retriever.BasicCardSearch(serial)
-			if err != nil {
-				logrus.WithError(err).Error("Error performing basic card search")
-				continue
-			}
-			productId := basicCardInfo.Results[0]
-
-			extendedCardInfo, err := retriever.ExtendedCardSearch(productId)
-			if err != nil {
-				logrus.WithError(err).Error("Error performing extended card search")
-				continue
-			}
-			cardInfo := extendedCardInfo.Results[0]
-
-			cardPricingInfo, err := retriever.GetCardPricingInfo(productId)
-			if err != nil {
-				logrus.WithError(err).Error("Error performing card price search")
-				continue
-			}
-
-			priceResults := make([]models.PriceResults, 0)
-			for i := range cardPricingInfo.Results {
-				if cardPricingInfo.Results[i].MarketPrice != 0.0 {
-					priceResults = append(priceResults, cardPricingInfo.Results[i])
+		go func() {
+			for _, serial := range cardList {
+				basicCardInfo, err := retriever.BasicCardSearch(serial)
+				if err != nil {
+					logrus.WithError(err).Error("Error performing basic card search")
+					continue
 				}
+				productId := basicCardInfo.Results[0]
+
+				extendedCardInfo, err := retriever.ExtendedCardSearch(productId)
+				if err != nil {
+					logrus.WithError(err).Error("Error performing extended card search")
+					continue
+				}
+				cardInfo := extendedCardInfo.Results[0]
+
+				cardPricingInfo, err := retriever.GetCardPricingInfo(productId)
+				if err != nil {
+					logrus.WithError(err).Error("Error performing card price search")
+					continue
+				}
+
+				priceResults := make([]models.PriceResults, 0)
+				for i := range cardPricingInfo.Results {
+					if cardPricingInfo.Results[i].MarketPrice != 0.0 {
+						priceResults = append(priceResults, cardPricingInfo.Results[i])
+					}
+				}
+
+				cardInfoWithPrice := models.CardWithPriceInfo{
+					CardInfo:  cardInfo,
+					PriceInfo: priceResults,
+				}
+
+				_, err = handler.AddCard(context.Background(), cardInfoWithPrice)
+				if err != nil {
+					logrus.WithError(err).Error("Error adding card to database")
+					continue
+				}
+				cardsAdded++
+				logrus.Info(fmt.Sprintf("%v out of %v cards added", cardsAdded, len(cardList)))
+
+				/* One second delay after each card because TCG Player API limits users to 300 API calls per minute.
+				With three calls occurring per card, this ensures a maximum of 180 calls per minutes. */
+				time.Sleep(1 * time.Second)
 			}
+		}()
 
-			cardInfoWithPrice := models.CardWithPriceInfo{
-				CardInfo:  cardInfo,
-				PriceInfo: priceResults,
-			}
-
-			_, err = handler.AddCard(context.Background(), cardInfoWithPrice)
-			if err != nil {
-				logrus.WithError(err).Error("Error adding card to database")
-				continue
-			}
-			cardsAdded++
-			logrus.Info(fmt.Sprintf("%v out of %v cards added", cardsAdded, len(cardList)))
-
-			/* One second delay after each card because TCG Player API limits users to 300 API calls per minute.
-			With three calls occurring per card, this ensures a maximum of 180 calls per minutes. */
-			time.Sleep(1 * time.Second)
-		}
-
-		respondWithSuccess(w, http.StatusOK, fmt.Sprintf("%v out of %v provided cards added to database", cardsAdded, len(cardList)))
+		respondWithSuccess(w, http.StatusOK, fmt.Sprintf("Adding cards has started. %v cards are being added.", len(cardList)))
 		return
 	}
 }
 
 func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+
 		if err := retriever.RefreshToken(publicKey, privateKey); err != nil {
 			logrus.WithError(err).Error("Error refreshing token")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
@@ -324,6 +337,8 @@ func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.Ha
 
 func updateCard(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+
 		id := mux.Vars(r)["id"]
 		objectId, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -353,6 +368,8 @@ func updateCard(handler dao.DbHandler) http.HandlerFunc {
 
 func deleteCard(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+
 		id := mux.Vars(r)["id"]
 		objectId, err := primitive.ObjectIDFromHex(id)
 		if err != nil {
@@ -374,6 +391,8 @@ func deleteCard(handler dao.DbHandler) http.HandlerFunc {
 
 func getCards(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+
 		results, err := handler.GetCards(context.Background(), nil)
 		if err != nil {
 			logrus.WithError(err).Error("Error getting cards from database")
@@ -409,6 +428,7 @@ func respondWithSuccess(w http.ResponseWriter, code int, body interface{}) {
 	w.WriteHeader(code)
 	if body == nil {
 		logrus.Error("Body is nil, unable to write response")
+		return
 	}
 	if err := json.NewEncoder(w).Encode(body); err != nil {
 		logrus.WithError(err).Error("Error encoding response")
@@ -420,8 +440,20 @@ func respondWithError(w http.ResponseWriter, code int, message string) {
 	w.WriteHeader(code)
 	if message == "" {
 		logrus.Error("Body is nil, unable to write response")
+		return
 	}
 	if err := json.NewEncoder(w).Encode(map[string]string{"error": message}); err != nil {
 		logrus.WithError(err).Error("Error encoding response")
 	}
+}
+
+func closeRequestBody(req *http.Request) {
+	if req.Body == nil {
+		return
+	}
+	if err := req.Body.Close(); err != nil {
+		logrus.WithError(err).Error("Error closing request body")
+		return
+	}
+	return
 }
