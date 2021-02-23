@@ -371,14 +371,8 @@ func deleteCard(handler dao.DbHandler) http.HandlerFunc {
 		defer closeRequestBody(r)
 
 		id := mux.Vars(r)["id"]
-		objectId, err := primitive.ObjectIDFromHex(id)
-		if err != nil {
-			logrus.WithError(err).Error("Error deleting card")
-			respondWithError(w, http.StatusInternalServerError, "Error deleting card")
-			return
-		}
 
-		err = handler.DeleteCard(context.Background(), objectId)
+		err := handler.DeleteCard(context.Background(), id)
 		if err != nil {
 			logrus.WithError(err).Error("Error deleting card")
 			respondWithError(w, http.StatusInternalServerError, "Error deleting card")

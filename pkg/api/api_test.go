@@ -703,25 +703,13 @@ func TestApi_UpdateCard_ShouldReturn200OnSuccess(t *testing.T) {
 	require.Equal(t, 200, recorder.Code)
 }
 
-func TestApi_DeleteCard_ShouldReturn500IfInvalidId(t *testing.T) {
-	dbHandler := &mocks.DbHandler{}
-
-	req, err := http.NewRequest(http.MethodDelete, "/card/test", nil)
-	require.Nil(t, err)
-
-	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(deleteCard(dbHandler))
-	httpHandler.ServeHTTP(recorder, req)
-	require.Equal(t, 500, recorder.Code)
-}
-
 func TestApi_DeleteCard_ShouldReturn500IfDeleteFails(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
 	dbHandler.On("DeleteCard", mock.Anything, mock.Anything).Return(errors.New("test"))
 
 	req, err := http.NewRequest(http.MethodDelete, "/card/test", nil)
 	require.Nil(t, err)
-	req = mux.SetURLVars(req, map[string]string{"id": "5df936d80684b40001b3134a"})
+	req = mux.SetURLVars(req, map[string]string{"id": "TEST-1234"})
 
 	recorder := httptest.NewRecorder()
 	httpHandler := http.HandlerFunc(deleteCard(dbHandler))
@@ -735,7 +723,7 @@ func TestApi_DeleteCard_ShouldReturn200IfNoErrors(t *testing.T) {
 
 	req, err := http.NewRequest(http.MethodDelete, "/card/test", nil)
 	require.Nil(t, err)
-	req = mux.SetURLVars(req, map[string]string{"id": "5df936d80684b40001b3134a"})
+	req = mux.SetURLVars(req, map[string]string{"id": "TEST-1234"})
 
 	recorder := httptest.NewRecorder()
 	httpHandler := http.HandlerFunc(deleteCard(dbHandler))

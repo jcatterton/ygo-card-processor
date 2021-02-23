@@ -13,7 +13,7 @@ type DbHandler interface {
 	AddCard(ctx context.Context, card models.CardWithPriceInfo) (interface{}, error)
 	UpdateCardById(ctx context.Context, id primitive.ObjectID, card models.CardWithPriceInfo) (*models.CardWithPriceInfo, error)
 	UpdateCardByNumber(ctx context.Context, serial string, card models.CardWithPriceInfo) (*models.CardWithPriceInfo, error)
-	DeleteCard(ctx context.Context, id primitive.ObjectID) error
+	DeleteCard(ctx context.Context, serial string) error
 	GetCards(ctx context.Context, filters map[string]interface{}) ([]models.CardWithPriceInfo, error)
 	GetCardByNumber(ctx context.Context, serial string) (*models.CardWithPriceInfo, error)
 	Ping(ctx context.Context) error

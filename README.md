@@ -11,7 +11,7 @@ Returns 500 if error occurrs before processing begins. Processing continues afte
 does not refer to mongo objectID.
 - PUT /card/{id} - Updates card in database using JSON values in request body based on given ID. ID here refers to mongo
 ObjectID.
-- DELETE /card/{id} - Deletes card from database based on given ID. ID here refers to mongo objectID.
+- DELETE /card/{id} - Deletes card from database based on given serial number. ID here does not refer to mongo objectID.
 - POST /cards - Adds card to database from excel file input. Excel file muse contain card serial number listed one by
 one in first column of spreadsheet. Other columns are irrelevant. File must be given key 'input' in request. Returns 200
 once adding has begun, 500 if error occurs before adding begins. Adding of cards continues after API has sent response.

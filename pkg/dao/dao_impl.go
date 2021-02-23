@@ -82,10 +82,22 @@ func (db *MongoClient) UpdateCardByNumber(ctx context.Context, serial string, ca
 	return &updatedCard, nil
 }
 
-func (db *MongoClient) DeleteCard(ctx context.Context, id primitive.ObjectID) error {
-	_, err := db.getCollection().DeleteOne(ctx, bson.M{"_id": id})
+func (db *MongoClient) DeleteCard(ctx context.Context, serial string) error {
+	result, err := db.getCollection().DeleteOne(
+		ctx,
+		bson.D{
+			{"card.extendedData", bson.D{
+				{"$elemMatch", bson.D{
+					{"value", serial},
+				}},
+			}},
+		})
 	if err != nil {
 		return err
+	}
+
+	if result.DeletedCount == 0 {
+		return errors.New("no cards were deleted")
 	}
 
 	return nil

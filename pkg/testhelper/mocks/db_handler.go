@@ -61,13 +61,13 @@ func (_m *DbHandler) AddCards(ctx context.Context, cardList []interface{}) (int,
 	return r0, r1
 }
 
-// DeleteCard provides a mock function with given fields: ctx, id
-func (_m *DbHandler) DeleteCard(ctx context.Context, id primitive.ObjectID) error {
-	ret := _m.Called(ctx, id)
+// DeleteCard provides a mock function with given fields: ctx, serial
+func (_m *DbHandler) DeleteCard(ctx context.Context, serial string) error {
+	ret := _m.Called(ctx, serial)
 
 	var r0 error
-	if rf, ok := ret.Get(0).(func(context.Context, primitive.ObjectID) error); ok {
-		r0 = rf(ctx, id)
+	if rf, ok := ret.Get(0).(func(context.Context, string) error); ok {
+		r0 = rf(ctx, serial)
 	} else {
 		r0 = ret.Error(0)
 	}
