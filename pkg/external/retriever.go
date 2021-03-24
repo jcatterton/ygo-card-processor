@@ -1,10 +1,14 @@
 package external
 
-import "ygo-card-processor/models"
+import (
+	"context"
+
+	"ygo-card-processor/models"
+)
 
 type ExtRetriever interface {
-	RefreshToken(publicKey string, privateKey string) error
-	BasicCardSearch(serial string) (*models.SearchResponse, error)
-	ExtendedCardSearch(productId int) (*models.ExtendedSearchResponse, error)
-	GetCardPricingInfo(productId int) (*models.PriceResponse, error)
+	RefreshToken(ctx context.Context, publicKey string, privateKey string) error
+	BasicCardSearch(ctx context.Context, serial string) (*models.SearchResponse, error)
+	ExtendedCardSearch(ctx context.Context, productId int) (*models.ExtendedSearchResponse, error)
+	GetCardPricingInfo(ctx context.Context, productId int) (*models.PriceResponse, error)
 }

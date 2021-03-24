@@ -3,7 +3,6 @@ package api
 import (
 	"bytes"
 	"errors"
-	"github.com/gorilla/mux"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -12,11 +11,12 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
-	"ygo-card-processor/models"
 
+	"github.com/gorilla/mux"
 	"github.com/stretchr/testify/mock"
 	"github.com/stretchr/testify/require"
 
+	"ygo-card-processor/models"
 	"ygo-card-processor/pkg/testhelper/mocks"
 )
 
@@ -52,11 +52,14 @@ func TestApi_ProcessCards_ShouldReturn500IfUnableToRetrieveCardsFromDatabase(t *
 
 	retriever := &mocks.ExtRetriever{}
 
+	producer := &mocks.KafkaProducer{}
+	producer.On("Produce", mock.Anything, mock.Anything, mock.Anything)
+
 	req, err := http.NewRequest(http.MethodPost, "/process", nil)
 	require.Nil(t, err)
 
 	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
+	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever, producer))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 500, recorder.Code)
 }
@@ -66,13 +69,16 @@ func TestApi_ProcessCards_ShouldReturn500IfUnableToRefreshToken(t *testing.T) {
 	dbHandler.On("GetCards", mock.Anything, mock.Anything).Return([]models.CardWithPriceInfo{}, nil)
 
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(errors.New("test"))
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("test"))
+
+	producer := &mocks.KafkaProducer{}
+	producer.On("Produce", mock.Anything, mock.Anything, mock.Anything)
 
 	req, err := http.NewRequest(http.MethodPost, "/process", nil)
 	require.Nil(t, err)
 
 	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
+	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever, producer))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 500, recorder.Code)
 }
@@ -84,14 +90,17 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfBasicCardSearchFails(t *
 	}, nil)
 
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
+
+	producer := &mocks.KafkaProducer{}
+	producer.On("Produce", mock.Anything, mock.Anything, mock.Anything)
 
 	req, err := http.NewRequest(http.MethodPost, "/process", nil)
 	require.Nil(t, err)
 
 	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
+	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever, producer))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
 }
@@ -103,17 +112,20 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfExtendedCardSearchFails(
 	}, nil)
 
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
+
+	producer := &mocks.KafkaProducer{}
+	producer.On("Produce", mock.Anything, mock.Anything, mock.Anything)
 
 	req, err := http.NewRequest(http.MethodPost, "/process", nil)
 	require.Nil(t, err)
 
 	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
+	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever, producer))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
 }
@@ -125,20 +137,23 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfPricingSearchFails(t *te
 	}, nil)
 
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
+
+	producer := &mocks.KafkaProducer{}
+	producer.On("Produce", mock.Anything, mock.Anything, mock.Anything)
 
 	req, err := http.NewRequest(http.MethodPost, "/process", nil)
 	require.Nil(t, err)
 
 	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
+	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever, producer))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
 }
@@ -151,22 +166,25 @@ func TestApi_ProcessCards_ShouldReturn200ButNotAddCardIfUpdateFails(t *testing.T
 	dbHandler.On("UpdateCardByNumber", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{ExtendedData: []models.ExtendedData{{Value: "test"}}}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(&models.PriceResponse{
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(&models.PriceResponse{
 		Results: []models.PriceResults{{MarketPrice: 3.00}},
 	}, nil)
+
+	producer := &mocks.KafkaProducer{}
+	producer.On("Produce", mock.Anything, mock.Anything, mock.Anything)
 
 	req, err := http.NewRequest(http.MethodPost, "/process", nil)
 	require.Nil(t, err)
 
 	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
+	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever, producer))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
 }
@@ -179,29 +197,32 @@ func TestApi_ProcessCards_ShouldReturn200AndAddCard(t *testing.T) {
 	dbHandler.On("UpdateCardByNumber", mock.Anything, mock.Anything, mock.Anything).Return(nil, nil)
 
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{ExtendedData: []models.ExtendedData{{Value: "test"}}}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(&models.PriceResponse{
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(&models.PriceResponse{
 		Results: []models.PriceResults{{MarketPrice: 3.00}},
 	}, nil)
+
+	producer := &mocks.KafkaProducer{}
+	producer.On("Produce", mock.Anything, mock.Anything, mock.Anything)
 
 	req, err := http.NewRequest(http.MethodPost, "/process", nil)
 	require.Nil(t, err)
 
 	recorder := httptest.NewRecorder()
-	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever))
+	httpHandler := http.HandlerFunc(processCards(dbHandler, retriever, producer))
 	httpHandler.ServeHTTP(recorder, req)
 	require.Equal(t, 200, recorder.Code)
 }
 
 func TestApi_GetCardByNumber_ShouldReturn500IfHandlerReturnsError(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
-	dbHandler.On("GetCardByNumber", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
+	dbHandler.On("GetCardByNumber", mock.Anything, mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 
 	req, err := http.NewRequest(http.MethodGet, "/card/test", nil)
 	require.Nil(t, err)
@@ -214,7 +235,7 @@ func TestApi_GetCardByNumber_ShouldReturn500IfHandlerReturnsError(t *testing.T) 
 
 func TestApi_GetCardByNumber_ShouldReturn200IfHandlerReturnsNoError(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
-	dbHandler.On("GetCardByNumber", mock.Anything, mock.Anything).Return(&models.CardWithPriceInfo{}, nil)
+	dbHandler.On("GetCardByNumber", mock.Anything, mock.Anything, mock.Anything).Return(&models.CardWithPriceInfo{}, nil)
 
 	req, err := http.NewRequest(http.MethodGet, "/card/test", nil)
 	require.Nil(t, err)
@@ -327,7 +348,7 @@ func TestApi_AddCardsFromFile_ShouldReturn500IfRefreshTokenReturnsError(t *testi
 
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(errors.New("test"))
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("test"))
 	fileReader := &mocks.FileReader{}
 	fileReader.On("OpenAndReadFile", mock.Anything).Return([]string{"TEST"}, nil)
 
@@ -360,8 +381,8 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfBasicCardSearchFa
 
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 	fileReader := &mocks.FileReader{}
 	fileReader.On("OpenAndReadFile", mock.Anything).Return([]string{"TEST"}, nil)
 
@@ -394,13 +415,13 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfExtendedCardSearc
 
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 	fileReader := &mocks.FileReader{}
-	fileReader.On("OpenAndReadFile", mock.Anything).Return([]string{"TEST"}, nil)
+	fileReader.On("OpenAndReadFile", mock.Anything, mock.Anything).Return([]string{"TEST"}, nil)
 
 	recorder := httptest.NewRecorder()
 	httpHandler := http.HandlerFunc(addCardsFromFile(dbHandler, retriever, fileReader))
@@ -431,14 +452,14 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfPricingSearchFail
 
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 	fileReader := &mocks.FileReader{}
 	fileReader.On("OpenAndReadFile", mock.Anything).Return([]string{"TEST"}, nil)
 
@@ -472,14 +493,14 @@ func TestApi_AddCardsFromFile_ShouldReturn200ButUpdateNoCardsIfAddFails(t *testi
 	dbHandler := &mocks.DbHandler{}
 	dbHandler.On("AddCard", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(&models.PriceResponse{
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(&models.PriceResponse{
 		Results: []models.PriceResults{{MarketPrice: 3.00}},
 	}, nil)
 	fileReader := &mocks.FileReader{}
@@ -515,14 +536,14 @@ func TestApi_AddCardsFromFile_ShouldReturn200AndAddCardIfNoErrors(t *testing.T) 
 	dbHandler := &mocks.DbHandler{}
 	dbHandler.On("AddCard", mock.Anything, mock.Anything).Return(nil, nil)
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(&models.PriceResponse{
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(&models.PriceResponse{
 		Results: []models.PriceResults{{MarketPrice: 3.00}},
 	}, nil)
 	fileReader := &mocks.FileReader{}
@@ -537,7 +558,7 @@ func TestApi_AddCardsFromFile_ShouldReturn200AndAddCardIfNoErrors(t *testing.T) 
 func TestApi_AddCardById_ShouldReturn500IfRefreshTokenFails(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(errors.New("test"))
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(errors.New("test"))
 
 	req, err := http.NewRequest(http.MethodPost, "/card", nil)
 	require.Nil(t, err)
@@ -551,8 +572,8 @@ func TestApi_AddCardById_ShouldReturn500IfRefreshTokenFails(t *testing.T) {
 func TestApi_AddCardById_ShouldReturn500IfBasicSearchFails(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 
 	req, err := http.NewRequest(http.MethodPost, "/card/test", nil)
 	require.Nil(t, err)
@@ -566,11 +587,11 @@ func TestApi_AddCardById_ShouldReturn500IfBasicSearchFails(t *testing.T) {
 func TestApi_AddCardById_ShouldReturn500IfExtendedSearchFails(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 
 	req, err := http.NewRequest(http.MethodPost, "/card/test", nil)
 	require.Nil(t, err)
@@ -584,14 +605,14 @@ func TestApi_AddCardById_ShouldReturn500IfExtendedSearchFails(t *testing.T) {
 func TestApi_AddCardById_ShouldReturn500IfPricingSearchFails(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(nil, errors.New("test"))
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 
 	req, err := http.NewRequest(http.MethodPost, "/card/test", nil)
 	require.Nil(t, err)
@@ -606,14 +627,14 @@ func TestApi_AddCardById_ShouldReturn500IfAddFails(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
 	dbHandler.On("AddCard", mock.Anything, mock.Anything).Return(nil, errors.New("test"))
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(&models.PriceResponse{
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(&models.PriceResponse{
 		Results: []models.PriceResults{{MarketPrice: 3.00}},
 	}, nil)
 
@@ -630,14 +651,14 @@ func TestApi_AddCardById_ShouldReturn200IfNoErrors(t *testing.T) {
 	dbHandler := &mocks.DbHandler{}
 	dbHandler.On("AddCard", mock.Anything, mock.Anything).Return("success", nil)
 	retriever := &mocks.ExtRetriever{}
-	retriever.On("RefreshToken", mock.Anything, mock.Anything).Return(nil)
-	retriever.On("BasicCardSearch", mock.Anything).Return(&models.SearchResponse{
+	retriever.On("RefreshToken", mock.Anything, mock.Anything, mock.Anything).Return(nil)
+	retriever.On("BasicCardSearch", mock.Anything, mock.Anything).Return(&models.SearchResponse{
 		Results: []int{123},
 	}, nil)
-	retriever.On("ExtendedCardSearch", mock.Anything).Return(&models.ExtendedSearchResponse{
+	retriever.On("ExtendedCardSearch", mock.Anything, mock.Anything).Return(&models.ExtendedSearchResponse{
 		Results: []models.Card{{}},
 	}, nil)
-	retriever.On("GetCardPricingInfo", mock.Anything).Return(&models.PriceResponse{
+	retriever.On("GetCardPricingInfo", mock.Anything, mock.Anything).Return(&models.PriceResponse{
 		Results: []models.PriceResults{{MarketPrice: 3.00}},
 	}, nil)
 

@@ -1,5 +1,7 @@
 package models
 
+import "time"
+
 type Card struct {
 	ProductId    int            `json:"productId" bson:"productId"`
 	Name         string         `json:"name" bson:"name"`
@@ -76,4 +78,12 @@ type CardSearchBody struct {
 type CardSearchFilter struct {
 	Name   string   `json:"name" bson:"name"`
 	Values []string `json:"values" bson:"values"`
+}
+
+type Log struct {
+	AppName   string    `json:"appName" bson:"appName"`
+	Event     string    `json:"event" bson:"event"`
+	Message   string    `json:"message" bson:"message"`
+	IsError   bool      `json:"isError" bson:"isError"`
+	TimeStamp time.Time `json:"timeStamp" bson:"timeStamp"`
 }

@@ -2,12 +2,15 @@ package external
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/sirupsen/logrus"
 	"net/http"
 	"strings"
+
+	"github.com/sirupsen/logrus"
+
 	"ygo-card-processor/models"
 )
 
@@ -17,7 +20,7 @@ type Retriever struct {
 	Token  string
 }
 
-func (r *Retriever) RefreshToken(publicKey string, privateKey string) error {
+func (r *Retriever) RefreshToken(ctx context.Context, publicKey string, privateKey string) error {
 	body := fmt.Sprintf(
 		"grant_type=client_credentials&client_id=%v&client_secret=%v",
 		publicKey, privateKey)
@@ -27,6 +30,7 @@ func (r *Retriever) RefreshToken(publicKey string, privateKey string) error {
 		logrus.WithError(err).Error("Error creating request")
 		return err
 	}
+	req = req.WithContext(ctx)
 
 	response, err := r.Client.Do(req)
 	if err != nil {
@@ -44,7 +48,7 @@ func (r *Retriever) RefreshToken(publicKey string, privateKey string) error {
 	return nil
 }
 
-func (r *Retriever) BasicCardSearch(serial string) (*models.SearchResponse, error) {
+func (r *Retriever) BasicCardSearch(ctx context.Context, serial string) (*models.SearchResponse, error) {
 	filter := models.CardSearchFilter{
 		Name:   "Number",
 		Values: []string{serial},
@@ -64,6 +68,7 @@ func (r *Retriever) BasicCardSearch(serial string) (*models.SearchResponse, erro
 		logrus.WithError(err).Error("Error creating request")
 		return nil, err
 	}
+	req = req.WithContext(ctx)
 
 	if err := r.addHeaders(req); err != nil {
 		logrus.WithError(err).Error("Error adding auth token to request")
@@ -91,12 +96,13 @@ func (r *Retriever) BasicCardSearch(serial string) (*models.SearchResponse, erro
 	return &searchResponse, nil
 }
 
-func (r *Retriever) ExtendedCardSearch(productId int) (*models.ExtendedSearchResponse, error) {
+func (r *Retriever) ExtendedCardSearch(ctx context.Context, productId int) (*models.ExtendedSearchResponse, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%v/v1.37.0/catalog/products/%v?getExtendedFields=true", r.Url, productId), nil)
 	if err != nil {
 		logrus.WithError(err).Error("Error creating request")
 		return nil, err
 	}
+	req = req.WithContext(ctx)
 
 	if err := r.addHeaders(req); err != nil {
 		logrus.WithError(err).Error("Error adding auth token to request")
@@ -124,12 +130,13 @@ func (r *Retriever) ExtendedCardSearch(productId int) (*models.ExtendedSearchRes
 	return &searchResponse, nil
 }
 
-func (r *Retriever) GetCardPricingInfo(productId int) (*models.PriceResponse, error) {
+func (r *Retriever) GetCardPricingInfo(ctx context.Context, productId int) (*models.PriceResponse, error) {
 	req, err := http.NewRequest(http.MethodGet, fmt.Sprintf("%v/v1.37.0/pricing/product/%v", r.Url, productId), nil)
 	if err != nil {
 		logrus.WithError(err).Error("Error creating request")
 		return nil, err
 	}
+	req = req.WithContext(ctx)
 
 	if err := r.addHeaders(req); err != nil {
 		logrus.WithError(err).Error("Error adding auth token to request")

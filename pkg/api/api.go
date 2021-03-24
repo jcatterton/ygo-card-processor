@@ -4,21 +4,23 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"github.com/sirupsen/logrus"
-	"go.mongodb.org/mongo-driver/bson/primitive"
-	"go.mongodb.org/mongo-driver/mongo"
-	"go.mongodb.org/mongo-driver/mongo/options"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
+
 	"ygo-card-processor/models"
 	"ygo-card-processor/pkg/dao"
 	"ygo-card-processor/pkg/external"
+	"ygo-card-processor/pkg/producer"
 	"ygo-card-processor/pkg/reader"
 
 	"github.com/gorilla/handlers"
 	"github.com/gorilla/mux"
+	"github.com/sirupsen/logrus"
+	"go.mongodb.org/mongo-driver/bson/primitive"
+	"go.mongodb.org/mongo-driver/mongo"
+	"go.mongodb.org/mongo-driver/mongo/options"
 )
 
 var (
@@ -31,7 +33,9 @@ func ListenAndServe() error {
 	origins := handlers.AllowedOrigins([]string{"*"})
 	methods := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS", "DELETE"})
 
-	router, err := route()
+	ctx := context.Background()
+
+	router, err := route(ctx)
 	if err != nil {
 		return err
 	}
@@ -42,14 +46,14 @@ func ListenAndServe() error {
 		WriteTimeout: 5 * time.Second,
 		ReadTimeout:  5 * time.Second,
 	}
-	shutdownGracefully(server)
+	shutdownGracefully(ctx, server)
 
 	logrus.Info("Starting API server...")
 	return server.ListenAndServe()
 }
 
-func route() (*mux.Router, error) {
-	dbClient, err := mongo.Connect(context.Background(), options.Client().ApplyURI(os.Getenv("MONGO_URI")))
+func route(ctx context.Context) (*mux.Router, error) {
+	dbClient, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
 		return nil, err
 	}
@@ -72,10 +76,16 @@ func route() (*mux.Router, error) {
 
 	fileReader := reader.Reader{}
 
+	p, err := producer.CreateProducer(os.Getenv("BROKER"), os.Getenv("TOPIC"))
+	if err != nil {
+		logrus.WithError(err).Fatal("Failed to create producer")
+		return nil, err
+	}
+
 	r := mux.NewRouter()
 
 	r.HandleFunc("/health", checkHealth(&dbHandler)).Methods(http.MethodGet)
-	r.HandleFunc("/process", processCards(&dbHandler, &externalRetriever)).Methods(http.MethodPost)
+	r.HandleFunc("/process", processCards(&dbHandler, &externalRetriever, p)).Methods(http.MethodPost)
 	r.HandleFunc("/card/{id}", getCardByNumber(&dbHandler)).Methods(http.MethodGet)
 	r.HandleFunc("/card/{id}", addCardById(&dbHandler, &externalRetriever)).Methods(http.MethodPost)
 	r.HandleFunc("/card/{id}", updateCard(&dbHandler)).Methods(http.MethodPut)
@@ -89,8 +99,9 @@ func route() (*mux.Router, error) {
 func checkHealth(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
+		ctx := r.Context()
 
-		if err := handler.Ping(context.Background()); err != nil {
+		if err := handler.Ping(ctx); err != nil {
 			respondWithError(w, http.StatusInternalServerError, "API is running but database ping failed")
 			return
 		}
@@ -99,18 +110,19 @@ func checkHealth(handler dao.DbHandler) http.HandlerFunc {
 	}
 }
 
-func processCards(handler dao.DbHandler, retriever external.ExtRetriever) http.HandlerFunc {
+func processCards(handler dao.DbHandler, retriever external.ExtRetriever, p producer.KafkaProducer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
+		ctx := r.Context()
 
-		cardList, err := handler.GetCards(context.Background(), nil)
+		cardList, err := handler.GetCards(ctx, nil)
 		if err != nil {
 			logrus.WithError(err).Error("Error getting cards from database")
 			respondWithError(w, http.StatusInternalServerError, "Error getting cards from database")
 			return
 		}
 
-		if err := retriever.RefreshToken(publicKey, privateKey); err != nil {
+		if err := retriever.RefreshToken(ctx, publicKey, privateKey); err != nil {
 			logrus.WithError(err).Error("Error refreshing token")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
 			return
@@ -118,24 +130,28 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever) http.H
 
 		cardsAdded := 0
 		go func() {
+			p.Produce("processing_initiated", "card processing has started", false)
 			for _, serial := range cardList {
-				basicCardInfo, err := retriever.BasicCardSearch(serial.CardInfo.ExtendedData[0].Value)
+				basicCardInfo, err := retriever.BasicCardSearch(ctx, serial.CardInfo.ExtendedData[0].Value)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing basic card search")
+					p.Produce("processing_error", fmt.Sprintf("error performing basic card search on card with serial '%v'", serial), true)
 					continue
 				}
 				productId := basicCardInfo.Results[0]
 
-				extendedCardInfo, err := retriever.ExtendedCardSearch(productId)
+				extendedCardInfo, err := retriever.ExtendedCardSearch(ctx, productId)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing extended card search")
+					p.Produce("processing_error", fmt.Sprintf("error performing extended card search on card with serial '%v'", serial), true)
 					continue
 				}
 				cardInfo := extendedCardInfo.Results[0]
 
-				cardPricingInfo, err := retriever.GetCardPricingInfo(productId)
+				cardPricingInfo, err := retriever.GetCardPricingInfo(ctx, productId)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing card price search")
+					p.Produce("processing_error", fmt.Sprintf("error performing card price search on card with serial '%v'", serial), true)
 					continue
 				}
 
@@ -151,8 +167,9 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever) http.H
 					PriceInfo: priceResults,
 				}
 
-				if _, err := handler.UpdateCardByNumber(context.Background(), cardInfoWithPrice.CardInfo.ExtendedData[0].Value, cardInfoWithPrice); err != nil {
+				if _, err := handler.UpdateCardByNumber(ctx, cardInfoWithPrice.CardInfo.ExtendedData[0].Value, cardInfoWithPrice); err != nil {
 					logrus.WithError(err).Error("Error updating card")
+					p.Produce("processing_error", fmt.Sprintf("error updating card with serial '%v'", serial), true)
 					continue
 				}
 
@@ -163,6 +180,7 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever) http.H
 				With three calls occurring per card, this ensures a maximum of 180 calls per minutes. */
 				time.Sleep(1 * time.Second)
 			}
+			p.Produce("processing_terminated", fmt.Sprintf("card processing has finished - %v cards processed", cardsAdded), false)
 		}()
 
 		respondWithSuccess(w, http.StatusOK, fmt.Sprintf("Processing cards has started"))
@@ -173,10 +191,11 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever) http.H
 func getCardByNumber(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
+		ctx := r.Context()
 
 		id := mux.Vars(r)["id"]
 
-		result, err := handler.GetCardByNumber(context.Background(), id)
+		result, err := handler.GetCardByNumber(ctx, id)
 		if err != nil {
 			logrus.WithError(err).Error("Error retrieving card")
 			respondWithError(w, http.StatusInternalServerError, "Error retrieving card")
@@ -190,6 +209,9 @@ func getCardByNumber(handler dao.DbHandler) http.HandlerFunc {
 
 func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fileReader reader.FileReader) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		defer closeRequestBody(r)
+		ctx := r.Context()
+
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			logrus.WithError(err).Error("Error parsing file")
 			respondWithError(w, http.StatusInternalServerError, "Error adding cards")
@@ -216,7 +238,7 @@ func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fi
 			return
 		}
 
-		if err := retriever.RefreshToken(publicKey, privateKey); err != nil {
+		if err := retriever.RefreshToken(ctx, publicKey, privateKey); err != nil {
 			logrus.WithError(err).Error("Error refreshing token")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
 			return
@@ -225,21 +247,21 @@ func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fi
 		cardsAdded := 0
 		go func() {
 			for _, serial := range cardList {
-				basicCardInfo, err := retriever.BasicCardSearch(serial)
+				basicCardInfo, err := retriever.BasicCardSearch(ctx, serial)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing basic card search")
 					continue
 				}
 				productId := basicCardInfo.Results[0]
 
-				extendedCardInfo, err := retriever.ExtendedCardSearch(productId)
+				extendedCardInfo, err := retriever.ExtendedCardSearch(ctx, productId)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing extended card search")
 					continue
 				}
 				cardInfo := extendedCardInfo.Results[0]
 
-				cardPricingInfo, err := retriever.GetCardPricingInfo(productId)
+				cardPricingInfo, err := retriever.GetCardPricingInfo(ctx, productId)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing card price search")
 					continue
@@ -257,7 +279,7 @@ func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fi
 					PriceInfo: priceResults,
 				}
 
-				_, err = handler.AddCard(context.Background(), cardInfoWithPrice)
+				_, err = handler.AddCard(ctx, cardInfoWithPrice)
 				if err != nil {
 					logrus.WithError(err).Error("Error adding card to database")
 					continue
@@ -279,8 +301,9 @@ func addCardsFromFile(handler dao.DbHandler, retriever external.ExtRetriever, fi
 func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
+		ctx := r.Context()
 
-		if err := retriever.RefreshToken(publicKey, privateKey); err != nil {
+		if err := retriever.RefreshToken(ctx, publicKey, privateKey); err != nil {
 			logrus.WithError(err).Error("Error refreshing token")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
 			return
@@ -288,7 +311,7 @@ func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.Ha
 
 		serial := mux.Vars(r)["id"]
 
-		basicCardInfo, err := retriever.BasicCardSearch(serial)
+		basicCardInfo, err := retriever.BasicCardSearch(ctx, serial)
 		if err != nil {
 			logrus.WithError(err).Error("Error performing basic card search")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
@@ -296,7 +319,7 @@ func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.Ha
 		}
 		productId := basicCardInfo.Results[0]
 
-		extendedCardInfo, err := retriever.ExtendedCardSearch(productId)
+		extendedCardInfo, err := retriever.ExtendedCardSearch(ctx, productId)
 		if err != nil {
 			logrus.WithError(err).Error("Error performing extended card search")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
@@ -304,7 +327,7 @@ func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.Ha
 		}
 		cardInfo := extendedCardInfo.Results[0]
 
-		cardPricingInfo, err := retriever.GetCardPricingInfo(productId)
+		cardPricingInfo, err := retriever.GetCardPricingInfo(ctx, productId)
 		if err != nil {
 			logrus.WithError(err).Error("Error performing card price search")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
@@ -323,7 +346,7 @@ func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.Ha
 			PriceInfo: priceResults,
 		}
 
-		result, err := handler.AddCard(context.Background(), cardInfoWithPrice)
+		result, err := handler.AddCard(ctx, cardInfoWithPrice)
 		if err != nil {
 			logrus.WithError(err).Error("Error adding card to database")
 			respondWithError(w, http.StatusInternalServerError, "Error adding card")
@@ -338,6 +361,7 @@ func addCardById(handler dao.DbHandler, retriever external.ExtRetriever) http.Ha
 func updateCard(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
+		ctx := r.Context()
 
 		id := mux.Vars(r)["id"]
 		objectId, err := primitive.ObjectIDFromHex(id)
@@ -354,7 +378,7 @@ func updateCard(handler dao.DbHandler) http.HandlerFunc {
 			return
 		}
 
-		result, err := handler.UpdateCardById(context.Background(), objectId, card)
+		result, err := handler.UpdateCardById(ctx, objectId, card)
 		if err != nil {
 			logrus.WithError(err).Error("Error updating card")
 			respondWithError(w, http.StatusInternalServerError, "Error updating card")
@@ -369,10 +393,11 @@ func updateCard(handler dao.DbHandler) http.HandlerFunc {
 func deleteCard(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
+		ctx := r.Context()
 
 		id := mux.Vars(r)["id"]
 
-		err := handler.DeleteCard(context.Background(), id)
+		err := handler.DeleteCard(ctx, id)
 		if err != nil {
 			logrus.WithError(err).Error("Error deleting card")
 			respondWithError(w, http.StatusInternalServerError, "Error deleting card")
@@ -386,8 +411,9 @@ func deleteCard(handler dao.DbHandler) http.HandlerFunc {
 func getCards(handler dao.DbHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
+		ctx := r.Context()
 
-		results, err := handler.GetCards(context.Background(), nil)
+		results, err := handler.GetCards(ctx, nil)
 		if err != nil {
 			logrus.WithError(err).Error("Error getting cards from database")
 			respondWithError(w, http.StatusInternalServerError, "Error getting cards from database")
@@ -399,13 +425,13 @@ func getCards(handler dao.DbHandler) http.HandlerFunc {
 	}
 }
 
-func shutdownGracefully(server *http.Server) {
+func shutdownGracefully(ctx context.Context, server *http.Server) {
 	go func() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, os.Interrupt)
 		<-signals
 
-		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		c, cancel := context.WithTimeout(ctx, 5*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(c); err != nil {
