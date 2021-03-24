@@ -48,3 +48,15 @@ spec:
               name: ygo-card-processor
               key: MONGO_URI
               optional: false
+        - name: "BROKER"
+          valueFrom:
+            secretKeyRef:
+              name: ygo-card-processor
+              key: BROKER
+              optional: false
+        - name: "TOPIC"
+          valueFrom:
+            secretKeyRef:
+              name: ygo-card-processor
+              key: TOPIC
+              optional: false
