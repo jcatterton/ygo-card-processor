@@ -33,9 +33,7 @@ func ListenAndServe() error {
 	origins := handlers.AllowedOrigins([]string{"*"})
 	methods := handlers.AllowedMethods([]string{"GET", "HEAD", "POST", "PUT", "OPTIONS", "DELETE"})
 
-	ctx := context.Background()
-
-	router, err := route(ctx)
+	router, err := route()
 	if err != nil {
 		return err
 	}
@@ -46,14 +44,14 @@ func ListenAndServe() error {
 		WriteTimeout: 5 * time.Second,
 		ReadTimeout:  5 * time.Second,
 	}
-	shutdownGracefully(ctx, server)
+	shutdownGracefully(server)
 
 	logrus.Info("Starting API server...")
 	return server.ListenAndServe()
 }
 
-func route(ctx context.Context) (*mux.Router, error) {
-	dbClient, err := mongo.Connect(ctx, options.Client().ApplyURI(os.Getenv("MONGO_URI")))
+func route() (*mux.Router, error) {
+	dbClient, err := mongo.Connect(context.Background(), options.Client().ApplyURI(os.Getenv("MONGO_URI")))
 	if err != nil {
 		return nil, err
 	}
@@ -113,7 +111,7 @@ func checkHealth(handler dao.DbHandler) http.HandlerFunc {
 func processCards(handler dao.DbHandler, retriever external.ExtRetriever, p producer.KafkaProducer) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		defer closeRequestBody(r)
-		ctx := r.Context()
+		ctx := context.Background()
 
 		cardList, err := handler.GetCards(ctx, nil)
 		if err != nil {
@@ -135,7 +133,7 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever, p prod
 				basicCardInfo, err := retriever.BasicCardSearch(ctx, serial.CardInfo.ExtendedData[0].Value)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing basic card search")
-					p.Produce("processing_error", fmt.Sprintf("error performing basic card search on card with serial '%v'", serial), true)
+					p.Produce("processing_error", fmt.Sprintf("error performing basic card search on card with name '%v'", serial.CardInfo.Name), true)
 					continue
 				}
 				productId := basicCardInfo.Results[0]
@@ -143,7 +141,7 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever, p prod
 				extendedCardInfo, err := retriever.ExtendedCardSearch(ctx, productId)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing extended card search")
-					p.Produce("processing_error", fmt.Sprintf("error performing extended card search on card with serial '%v'", serial), true)
+					p.Produce("processing_error", fmt.Sprintf("error performing extended card search on card with name '%v'", serial.CardInfo.Name), true)
 					continue
 				}
 				cardInfo := extendedCardInfo.Results[0]
@@ -151,7 +149,7 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever, p prod
 				cardPricingInfo, err := retriever.GetCardPricingInfo(ctx, productId)
 				if err != nil {
 					logrus.WithError(err).Error("Error performing card price search")
-					p.Produce("processing_error", fmt.Sprintf("error performing card price search on card with serial '%v'", serial), true)
+					p.Produce("processing_error", fmt.Sprintf("error performing card price search on card with name '%v'", serial.CardInfo.Name), true)
 					continue
 				}
 
@@ -169,7 +167,7 @@ func processCards(handler dao.DbHandler, retriever external.ExtRetriever, p prod
 
 				if _, err := handler.UpdateCardByNumber(ctx, cardInfoWithPrice.CardInfo.ExtendedData[0].Value, cardInfoWithPrice); err != nil {
 					logrus.WithError(err).Error("Error updating card")
-					p.Produce("processing_error", fmt.Sprintf("error updating card with serial '%v'", serial), true)
+					p.Produce("processing_error", fmt.Sprintf("error updating card with name '%v'", serial.CardInfo.Name), true)
 					continue
 				}
 
@@ -425,13 +423,13 @@ func getCards(handler dao.DbHandler) http.HandlerFunc {
 	}
 }
 
-func shutdownGracefully(ctx context.Context, server *http.Server) {
+func shutdownGracefully(server *http.Server) {
 	go func() {
 		signals := make(chan os.Signal, 1)
 		signal.Notify(signals, os.Interrupt)
 		<-signals
 
-		c, cancel := context.WithTimeout(ctx, 5*time.Second)
+		c, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()
 
 		if err := server.Shutdown(c); err != nil {
